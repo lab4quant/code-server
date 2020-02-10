@@ -1,4 +1,3 @@
-import { Binary } from "@coder/nbin";
 import * as cp from "child_process";
 // import * as crypto from "crypto";
 import * as fs from "fs-extra";
@@ -11,8 +10,6 @@ enum Task {
 	 * Use before running anything that only works inside VS Code.
 	 */
 	EnsureInVscode = "ensure-in-vscode",
-	Binary = "binary",
-	Package = "package",
 	Build = "build",
 }
 
@@ -78,15 +75,11 @@ class Builder {
 		const codeServerVersion = this.ensureArgument("codeServerVersion", args[1]);
 
 		const vscodeSourcePath = path.join(this.outPath, "source", `vscode-${vscodeVersion}-source`);
-		const binariesPath = path.join(this.outPath, "binaries");
+		// const binariesPath = path.join(this.outPath, "binaries");
 		const binaryName = `code-server${codeServerVersion}-vsc${vscodeVersion}-${target}-${arch}`;
 		const finalBuildPath = path.join(this.outPath, "build", `${binaryName}-built`);
 
 		switch (task) {
-			case Task.Binary:
-				return this.binary(finalBuildPath, binariesPath, binaryName);
-			case Task.Package:
-				return this.package(vscodeSourcePath, binariesPath, binaryName);
 			case Task.Build:
 				return this.build(vscodeSourcePath, vscodeVersion, codeServerVersion, finalBuildPath);
 			default:
@@ -312,78 +305,7 @@ class Builder {
 			]);
 		});
 
-		// Prepend code to the target which enables finding files within the binary.
-		const prependLoader = async (relativeFilePath: string): Promise<void> => {
-			const filePath = path.join(finalBuildPath, relativeFilePath);
-			const shim = `
-				if (!global.NBIN_LOADED) {
-					try {
-						const nbin = require("nbin");
-						nbin.shimNativeFs("${finalBuildPath}");
-						global.NBIN_LOADED = true;
-						const path = require("path");
-						const rg = require("vscode-ripgrep");
-						rg.binaryRgPath = rg.rgPath;
-						rg.rgPath = path.join(require("os").tmpdir(), "code-server", path.basename(rg.binaryRgPath));
-					} catch (error) { /*  Not in the binary. */ }
-				}
-			`;
-			await fs.writeFile(filePath, shim + (await fs.readFile(filePath, "utf8")));
-		};
-
-		await this.task("Prepending nbin loader", () => {
-			return Promise.all([
-				prependLoader("out/vs/server/main.js"),
-				prependLoader("out/bootstrap-fork.js"),
-				prependLoader("extensions/node_modules/typescript/lib/tsserver.js"),
-			]);
-		});
-
 		this.log(`Final build: ${finalBuildPath}`);
-	}
-
-	/**
-	 * Bundles the built code into a binary.
-	 */
-	private async binary(targetPath: string, binariesPath: string, binaryName: string): Promise<void> {
-		const bin = new Binary({
-			mainFile: path.join(targetPath, "out/vs/server/main.js"),
-			target: await this.target(),
-		});
-
-		bin.writeFiles(path.join(targetPath, "**"));
-
-		await fs.mkdirp(binariesPath);
-
-		const binaryPath = path.join(binariesPath, binaryName);
-		await fs.writeFile(binaryPath, await bin.build());
-		await fs.chmod(binaryPath, "755");
-
-		this.log(`Binary: ${binaryPath}`);
-	}
-
-	/**
-	 * Package the binary into a release archive.
-	 */
-	private async package(vscodeSourcePath: string, binariesPath: string, binaryName: string): Promise<void> {
-		const releasePath = path.join(this.outPath, "release");
-		const archivePath = path.join(releasePath, binaryName);
-
-		await fs.remove(archivePath);
-		await fs.mkdirp(archivePath);
-
-		await fs.copyFile(path.join(binariesPath, binaryName), path.join(archivePath, "code-server"));
-		await fs.copyFile(path.join(this.rootPath, "README.md"), path.join(archivePath, "README.md"));
-		await fs.copyFile(path.join(vscodeSourcePath, "LICENSE.txt"), path.join(archivePath, "LICENSE.txt"));
-		await fs.copyFile(path.join(vscodeSourcePath, "ThirdPartyNotices.txt"), path.join(archivePath, "ThirdPartyNotices.txt"));
-
-		if ((await this.target()) === "darwin") {
-			await util.promisify(cp.exec)(`zip -r "${binaryName}.zip" "${binaryName}"`, { cwd: releasePath });
-			this.log(`Archive: ${archivePath}.zip`);
-		} else {
-			await util.promisify(cp.exec)(`tar -czf "${binaryName}.tar.gz" "${binaryName}"`, { cwd: releasePath });
-			this.log(`Archive: ${archivePath}.tar.gz`);
-		}
 	}
 }
 
