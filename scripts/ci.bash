@@ -40,7 +40,6 @@ function main() {
 	# Always minify and package on tags since that's when releases are pushed.
 	if [[ -n ${DRONE_TAG:-} || -n ${TRAVIS_TAG:-} ]] ; then
 		export MINIFY="true"
-		export PACKAGE="true"
 	fi
 
 	function run-yarn() {
@@ -48,26 +47,6 @@ function main() {
 	}
 
 	run-yarn build
-	run-yarn binary
-	if [[ -n ${PACKAGE:-} ]] ; then
-		run-yarn package
-	fi
-
-	# In this case provide a plainly named "code-server" binary.
-	if [[ -n ${BINARY:-} ]] ; then
-		mv binaries/code-server*-vsc* binaries/code-server
-	fi
-
-	# Prepare GCS bucket directory on release.
-	if [[ -n ${DRONE_TAG:-} || -n ${TRAVIS_TAG:-} ]] ; then
-		local gcp_dir="gcs_bucket/releases/$code_server_version/$(target)"
-
-		mkdir -p "$gcp_dir"
-		mv binaries/code-server*-vsc* "$gcp_dir"
-		if [[ "$(target)" == "linux-x86_64" ]] ; then
-			mv binaries/code-server*-vsc* "gcs_bucket/latest-linux"
-		fi
-	fi
 }
 
 main "$@"
